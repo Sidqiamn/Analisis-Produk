@@ -1,0 +1,12 @@
+/* Tailwind v4: satu baris ini menggantikan tiga direktif @tailwind yang lama.
+   Butuh paket `tailwindcss` dan `@tailwindcss/vite` (lihat SETUP-LOKAL.md). */
+@import "tailwindcss";
+
+/* Aplikasi mengisi seluruh layar. Tanpa tinggi 100%, area gulir di dalam
+   halaman tidak jalan dan isi menempel di atas dengan tinggi seadanya. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
