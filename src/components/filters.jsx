@@ -17,7 +17,7 @@ import {
   toJs,
 } from "../lib/format.js";
 import { useClickOutside } from "../lib/hooks.js";
-import { IconInfo } from "./icons.jsx";
+import { IconInfo, IconReset } from "./icons.jsx";
 import {
   BTN_QUIET,
   FIELD,
@@ -366,7 +366,30 @@ export function PeriodBar({ p1, p2, setP1, setP2, cmpOn, onToggleCmp, bounds, la
  * jadi halaman lain ikut berakhir di tanggal yang sama.
  * `note` = keterangan di sampingnya; bawaannya kalimat untuk Peringatan.
  */
-export function AcuanBar({ value, min, max, onChange, note, label = "Tanggal acuan peringatan" }) {
+/**
+ * Tombol "Reset ke data terbaru": jendela 12 bulan, tanggal acuan = transaksi
+ * terakhir di data, Periode/Pembanding kembali mengikuti data terbaru, dan
+ * bilah kuning "sedang mengikuti peringatan yang ditelusuri" ditutup.
+ * Ambang dan pengaturan Peringatan lain tidak disentuh.
+ */
+export function ResetLatestButton({ onClick, latest }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`Kembali ke tampilan bawaan: jendela 12 bulan, dinilai per data terakhir${latest ? ` (${dLabel.format(toJs(latest))})` : ""}, periode mengikuti data terbaru. Ambang peringatan tidak berubah.`}
+      className={cx(
+        "dt-pop inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-[var(--brand-300)] bg-[var(--brand-50)] px-2.5 py-1 text-xs font-semibold text-[var(--brand-800)] transition-colors hover:border-[var(--brand-500)] hover:bg-[var(--brand-100)]",
+        FOCUS
+      )}
+    >
+      <IconReset className="h-4 w-4" />
+      Reset ke data terbaru
+    </button>
+  );
+}
+
+export function AcuanBar({ value, min, max, onChange, note, label = "Tanggal acuan peringatan", action }) {
   const latest = !!max && value === max;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-1.5 pt-2.5">
@@ -384,13 +407,15 @@ export function AcuanBar({ value, min, max, onChange, note, label = "Tanggal acu
         {latest ? (
           <span className="rounded-full bg-[var(--teal-50)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--teal-700)]">data terbaru</span>
         ) : (
-          max && (
+          max &&
+          !action && (
             <button type="button" className={BTN_QUIET} onClick={() => onChange(max)}>
               Ke data terbaru ({dLabel.format(toJs(max))})
             </button>
           )
         )}
       </div>
+      {action}
       {/* basis 20rem: di layar sempit catatan turun ke baris sendiri, tidak terjepit di samping kotak tanggal */}
       <p className="flex min-w-0 max-w-[92ch] flex-[1_1_20rem] items-start gap-1.5 text-[11.5px] leading-snug text-[var(--ink-600)]">
         <IconInfo className="mt-px h-3.5 w-3.5 flex-none text-[var(--ink-400)]" />

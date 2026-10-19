@@ -143,6 +143,16 @@ export const STYLES = `
 .dt-spin{animation:dtSpin .9s linear infinite;will-change:transform}
 .dt-busy{animation:dtFade .18s ease .14s both}
 
+/* bilah yang bisa dilipat (lihat Collapse di productui.jsx): tinggi beranimasi
+   lewat grid 1fr ↔ 0fr; saat terlipat isinya disembunyikan dari Tab & pembaca layar */
+.dt-collapse{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows .32s cubic-bezier(.22,1,.36,1),opacity .24s ease,visibility 0s linear 0s}
+.dt-collapse>*{min-height:0}
+.dt-collapse[data-clip="true"]>*{overflow:hidden}
+.dt-collapse[data-open="false"]{grid-template-rows:0fr;opacity:0;visibility:hidden;transition:grid-template-rows .32s cubic-bezier(.22,1,.36,1),opacity .2s ease,visibility 0s linear .32s}
+/* tombol bilah: pita penanda buku yang ikut "membalik" saat bilah disembunyikan */
+.dt-ribbon-chev{transition:transform .32s cubic-bezier(.22,1,.36,1);transform-box:fill-box;transform-origin:center}
+[aria-expanded="false"] .dt-ribbon-chev{transform:rotate(180deg)}
+
 /* ruang kosong di ujung bawah halaman, supaya tombol "kembali ke atas" di
    pojok kanan bawah tidak menutupi baris terakhir */
 [data-dt-page]>.dt-scroll,[data-dt-scrollroot]{padding-bottom:64px}
@@ -168,6 +178,7 @@ export const STYLES = `
   /* penanda memuat tetap ada (ia memberi tahu sesuatu sedang berjalan), tapi pelan dan tanpa memudar */
   .dt-spin{animation-duration:2.6s}
   .dt-busy{animation:dtFade 1ms linear .14s both}
+  .dt-collapse,.dt-collapse[data-open="false"],.dt-ribbon-chev{transition:none}
 }
 `;
 

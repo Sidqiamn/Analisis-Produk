@@ -57,13 +57,14 @@ import {
 } from "./lib/format.js";
 import { applySchema, defaultSource, loadFromCsv, loadFromFile, loadFromSupabase } from "./lib/data.js";
 import { readStore, useHashRoute, useIsNarrow, useSettled, useStable, writeStore } from "./lib/hooks.js";
-import { BTN, BTN_QUIET, Code, FOCUS, Frame, LINE, MUTED, Mark, NOTE_BAR, cx } from "./lib/theme.jsx";
+import { BTN, Code, FOCUS, Frame, LINE, MUTED, Mark, NOTE_BAR, cx } from "./lib/theme.jsx";
 
 import { GROUP_TONE, MENU, MenuButton, Sidebar, menuText } from "./components/Sidebar.jsx";
-import { AcuanBar, PeriodBar, SlicerBar } from "./components/filters.jsx";
+import { AcuanBar, PeriodBar, ResetLatestButton, SlicerBar } from "./components/filters.jsx";
 import { DataSourceButton, DataSourceDialog } from "./components/datasource.jsx";
 import { IconCalendar, IconDatabase, IconUpload } from "./components/icons.jsx";
 import { BusyHost, BusyOverlay, LiveControls, LoaderMark } from "./components/busy.jsx";
+import { BarsHidden, Collapse } from "./components/productui.jsx";
 
 import DecompositionTree from "./pages/DecompositionTree.jsx";
 import ProductPortfolio from "./pages/ProductPortfolio.jsx";
@@ -94,6 +95,8 @@ const nfInt = new Intl.NumberFormat("id-ID");
 
 /* Bandingkan periode (nyala/mati) dan jenis pembandingnya diingat peramban. */
 const CMP_STORE = "dt-pembanding-v1";
+/* Bilah atas (periode, penyaring, bilah Jendela yang menempel) disembunyikan atau tidak — diingat peramban. */
+const BARS_STORE = "dt-bilah-v1";
 const PREV_PRESETS = new Set(["keep_prev", "month_prev", "quarter_prev", "year_prev", "roll30", "roll90"]);
 const dayMonth = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short" });
 
@@ -226,6 +229,59 @@ function BackToTop({ host, resetKey }) {
   );
 }
 
+/**
+ * Tombol pita (penanda buku) di bilah judul: menyembunyikan atau menampilkan
+ * bilah atas — periode/Dinilai per, penyaring, dan bilah Jendela yang menempel
+ * (P1/P2 atau periode pantau, Keterangan, Kriteria). Panah di dalam pita
+ * berbalik mengikuti keadaannya. Saat bilah tersembunyi tombolnya menyala
+ * putih, dan jumlah penyaring aktif ikut tampil supaya tidak terlupa.
+ */
+function BarsToggle({ hidden, onToggle, filters }) {
+  const label = hidden ? "Tampilkan bilah" : "Sembunyikan bilah";
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!hidden}
+      aria-controls="dt-bilah-atas"
+      title={
+        hidden
+          ? "Tampilkan lagi bilah periode, penyaring, dan P1/P2"
+          : "Sembunyikan bilah periode, penyaring, dan P1/P2 supaya isi halaman lebih lega"
+      }
+      className={cx(
+        "relative inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
+        hidden
+          ? "border-white bg-white text-[var(--brand-800)] shadow-[0_2px_8px_-2px_rgba(0,0,0,.35)] hover:bg-white/90"
+          : "border-white/25 bg-white/10 text-white hover:bg-white/20"
+      )}
+    >
+      <svg viewBox="0 0 20 20" className="h-4 w-4 flex-none" fill="none" aria-hidden="true">
+        <path
+          d="M5.6 2.6h8.8c.5 0 .9.4.9.9v13.4c0 .4-.4.6-.7.4L10 14l-4.6 3.3c-.3.2-.7 0-.7-.4V3.5c0-.5.4-.9.9-.9z"
+          fill="currentColor"
+          fillOpacity={hidden ? 0.16 : 0.22}
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinejoin="round"
+        />
+        <path className="dt-ribbon-chev" d="M7.3 9.6 10 6.9l2.7 2.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="hidden sm:inline">{label}</span>
+      <span className="sr-only sm:hidden">{label}</span>
+      {hidden && filters > 0 && (
+        <span
+          className="ml-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--brand-700)] px-1 text-[10px] font-semibold leading-none text-white"
+          title={`${filters} penyaring aktif`}
+        >
+          {filters}
+          <span className="sr-only"> penyaring aktif</span>
+        </span>
+      )}
+    </button>
+  );
+}
+
 /** Layar ketika data belum bisa dipakai — selalu dengan jalan keluar. */
 function ProblemScreen({ title, children, onUpload, onRetry }) {
   const ref = useRef(null);
@@ -320,6 +376,10 @@ export default function App() {
     if (what === "open") bandBoxRef.current?.querySelector("input, select, button")?.focus();
     else bandBtnRef.current?.focus();
   }, [bandOpen]);
+
+  /* --- bilah atas bisa disembunyikan supaya isi halaman lebih lega --- */
+  const [barsHidden, setBarsHidden] = useState(() => readStore(BARS_STORE, null)?.hidden === true);
+  useEffect(() => writeStore(BARS_STORE, { hidden: barsHidden }), [barsHidden]);
 
   /* --- metrik --- */
   const [measureKey, setMeasureKey] = useState(MEASURES[0].key);
@@ -754,11 +814,26 @@ export default function App() {
   /* "Kembalikan semua ke bawaan" di Peringatan: jendela 12 bulan, ambang dan
      jenis peringatan bawaan, tanggal acuan = data terbaru. Kriteria tidak
      disentuh karena dipakai bersama halaman Portofolio. */
+  /* "Reset ke data terbaru" (bilah atas halaman Produk & Eksplorasi): kembali ke
+     tampilan bawaan — jendela 12 bulan, Periode/Pembanding mengikuti data
+     terbaru lagi (dihitung ulang oleh efek periode bawaan di atas), Bandingkan
+     menyala, dan bilah kuning "mengikuti peringatan yang ditelusuri" ditutup.
+     Ambang dan jenis peringatan tidak disentuh. */
+  const resetToLatest = useCallback(() => {
+    setRestore(null);
+    setWinMode("12");
+    setLastPreset(null);
+    setCmpOn(true);
+    setPeriodTouched(false);
+  }, []);
+
+  /* "Kembalikan semua ke bawaan" di Peringatan: seperti Reset ke data terbaru,
+     ditambah ambang dan jenis peringatan bawaan. Kriteria tidak disentuh
+     karena dipakai bersama halaman Portofolio. */
   const resetAlertView = useCallback(() => {
     setAlertCfg(normalizeAlertCfg(null));
-    setWinMode("12");
-    if (bounds.max && p1.to !== bounds.max) moveAcuan(bounds.max);
-  }, [bounds.max, p1.to, moveAcuan]);
+    resetToLatest();
+  }, [resetToLatest]);
 
   /* --- catatan peringatan --- */
   const d1 = daysBetween(p1.from, p1.to);
@@ -953,6 +1028,11 @@ export default function App() {
     </>
   );
   const activeSlicerCount = Object.values(slicers).filter((s) => s.size > 0).length;
+  // Tampilan bawaan halaman Produk & Eksplorasi: jendela 12 bulan, dinilai per
+  // transaksi terakhir, tidak sedang mengikuti peringatan yang ditelusuri.
+  // Selain itu muncul tombol Reset ke data terbaru di bilah atas.
+  const atLatest = winMode === "12" && (!bounds.max || !p1.to || p1.to === bounds.max) && !restore;
+  const resetBtn = usesWindow && !atLatest ? <ResetLatestButton onClick={resetToLatest} latest={bounds.max} /> : null;
   const acuanDate = p1.to || bounds.max;
   const bandSummary = !hasDates
     ? "Tanpa kolom tanggal"
@@ -1018,6 +1098,7 @@ export default function App() {
                 ))}
               </select>
             )}
+            <BarsToggle hidden={barsHidden} onToggle={() => setBarsHidden((v) => !v)} filters={activeSlicerCount} />
             <button
               type="button"
               onClick={() => setDsOpen(true)}
@@ -1036,94 +1117,97 @@ export default function App() {
             tanggal akhir Periode, jadi di sana bilah ini cukup berisi "Dinilai
             per". Bilah lengkap (Periode, Bandingkan, Preset) kembali kalau Jendela
             = Ikuti periode di atas. Di layar ponsel bilah ini diringkas menjadi
-            satu baris supaya isi halaman tidak terdorong ke bawah. */}
-        <div className={cx("border-b bg-[var(--band)]", LINE)} ref={bandBoxRef}>
-          {bandNarrow && !bandOpen ? (
-            <button
-              type="button"
-              ref={bandBtnRef}
-              onClick={() => toggleBand(true)}
-              aria-expanded={false}
-              className={cx("flex w-full items-center gap-2.5 px-4 py-2 text-left transition-colors hover:bg-[var(--brand-50)]", FOCUS)}
-            >
-              <IconCalendar className="h-4 w-4 flex-none text-[var(--brand-700)]" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-medium text-[var(--ink-900)]">{bandSummary}</span>
-                <span className="block truncate text-[11px] text-[var(--ink-500)]">
-                  {anySlicer ? `${nfInt.format(activeSlicerCount)} penyaring aktif` : "Tanpa penyaring — semua data"}
+            satu baris supaya isi halaman tidak terdorong ke bawah. Tombol pita
+            (BarsToggle) di bilah judul menyembunyikan bilah ini bersama bilah
+            Jendela yang menempel di halaman. */}
+        <Collapse open={!barsHidden} id="dt-bilah-atas">
+          <div className={cx("border-b bg-[var(--band)]", LINE)} ref={bandBoxRef}>
+            {bandNarrow && !bandOpen ? (
+              <button
+                type="button"
+                ref={bandBtnRef}
+                onClick={() => toggleBand(true)}
+                aria-expanded={false}
+                className={cx("flex w-full items-center gap-2.5 px-4 py-2 text-left transition-colors hover:bg-[var(--brand-50)]", FOCUS)}
+              >
+                <IconCalendar className="h-4 w-4 flex-none text-[var(--brand-700)]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-medium text-[var(--ink-900)]">{bandSummary}</span>
+                  <span className="block truncate text-[11px] text-[var(--ink-500)]">
+                    {anySlicer ? `${nfInt.format(activeSlicerCount)} penyaring aktif` : "Tanpa penyaring — semua data"}
+                  </span>
                 </span>
-              </span>
-              <span className="flex-none rounded-md border border-[var(--brand-200)] bg-[var(--paper)] px-2.5 py-1 text-[11.5px] font-medium text-[var(--brand-700)]">
-                Ubah
-              </span>
-            </button>
-          ) : (
-            <>
-              {hasDates ? (
-                compactBar ? (
-                  <AcuanBar
-                    value={p1.to || bounds.max}
-                    min={bounds.min}
-                    max={bounds.max}
-                    onChange={moveAcuan}
-                    note={vRoute === "peringatan" ? undefined : acuanNote}
-                    label={vRoute === "peringatan" ? "Tanggal acuan peringatan" : "Tanggal acuan analisis"}
-                  />
-                ) : (
-                  <>
-                    <PeriodBar
-                      p1={p1}
-                      p2={p2}
-                      setP1={userSetP1}
-                      setP2={userSetP2}
-                      cmpOn={cmpOn}
-                      onToggleCmp={() => setCmpOn((v) => !v)}
-                      bounds={bounds}
-                      lastPreset={lastPreset}
-                      onPreset={applyPreset}
+                <span className="flex-none rounded-md border border-[var(--brand-200)] bg-[var(--paper)] px-2.5 py-1 text-[11.5px] font-medium text-[var(--brand-700)]">
+                  Ubah
+                </span>
+              </button>
+            ) : (
+              <>
+                {hasDates ? (
+                  compactBar ? (
+                    <AcuanBar
+                      value={p1.to || bounds.max}
+                      min={bounds.min}
+                      max={bounds.max}
+                      onChange={moveAcuan}
+                      note={vRoute === "peringatan" ? undefined : acuanNote}
+                      label={vRoute === "peringatan" ? "Tanggal acuan peringatan" : "Tanggal acuan analisis"}
+                      action={resetBtn}
                     />
-                    {usesWindow && (
-                      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 pb-1.5 text-[11.5px] leading-snug text-[var(--ink-600)]">
-                        <span>
-                          Jendela <b className="font-medium text-[var(--ink-800)]">Ikuti periode di atas</b> sedang aktif, jadi halaman ini memakai Periode (P1)
-                          dan Pembanding (P2) di bilah ini.
-                        </span>
-                        <button type="button" className={BTN_QUIET} onClick={() => setWinMode("12")}>
-                          Pakai jendela 12 bulan
-                        </button>
-                      </p>
-                    )}
-                  </>
-                )
-              ) : (
-                <div className="px-4 py-2 text-xs text-[var(--note)]">
-                  Kolom tanggal tidak terbaca, jadi perbandingan periode dimatikan. Buka Data untuk melihat kolom yang dikenali, atau isi{" "}
-                  <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[11px]">DATE_FIELD</code> di{" "}
-                  <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[11px]">src/lib/config.js</code>.
-                </div>
-              )}
+                  ) : (
+                    <>
+                      <PeriodBar
+                        p1={p1}
+                        p2={p2}
+                        setP1={userSetP1}
+                        setP2={userSetP2}
+                        cmpOn={cmpOn}
+                        onToggleCmp={() => setCmpOn((v) => !v)}
+                        bounds={bounds}
+                        lastPreset={lastPreset}
+                        onPreset={applyPreset}
+                      />
+                      {usesWindow && (
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 pb-1.5 text-[11.5px] leading-snug text-[var(--ink-600)]">
+                          <span>
+                            Jendela <b className="font-medium text-[var(--ink-800)]">Ikuti periode di atas</b> sedang aktif, jadi halaman ini memakai Periode (P1)
+                            dan Pembanding (P2) di bilah ini.
+                          </span>
+                          {resetBtn}
+                        </p>
+                      )}
+                    </>
+                  )
+                ) : (
+                  <div className="px-4 py-2 text-xs text-[var(--note)]">
+                    Kolom tanggal tidak terbaca, jadi perbandingan periode dimatikan. Buka Data untuk melihat kolom yang dikenali, atau isi{" "}
+                    <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[11px]">DATE_FIELD</code> di{" "}
+                    <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[11px]">src/lib/config.js</code>.
+                  </div>
+                )}
 
-              {slicerDims.length > 0 && (
-                <SlicerBar
-                  slicerDims={slicerDims}
-                  options={slicerOptions}
-                  slicers={slicers}
-                  onChange={(d, set) => setSlicers((p) => ({ ...p, [d]: set }))}
-                  onClear={clearSlicers}
-                  right={<span className={cx("text-[11.5px]", MUTED)}>{countText}</span>}
-                />
-              )}
+                {slicerDims.length > 0 && (
+                  <SlicerBar
+                    slicerDims={slicerDims}
+                    options={slicerOptions}
+                    slicers={slicers}
+                    onChange={(d, set) => setSlicers((p) => ({ ...p, [d]: set }))}
+                    onClear={clearSlicers}
+                    right={<span className={cx("text-[11.5px]", MUTED)}>{countText}</span>}
+                  />
+                )}
 
-              {bandNarrow && (
-                <div className="flex justify-end px-4 pb-2">
-                  <button type="button" className={BTN} onClick={() => toggleBand(false)} aria-expanded={true}>
-                    Selesai
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+                {bandNarrow && (
+                  <div className="flex justify-end px-4 pb-2">
+                    <button type="button" className={BTN} onClick={() => toggleBand(false)} aria-expanded={true}>
+                      Selesai
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </Collapse>
 
         {/* ---------------- catatan ---------------- */}
         {restore && (
@@ -1190,7 +1274,9 @@ export default function App() {
             kembali ke atas menempel di pojok kanan bawahnya. */}
         <div className="relative flex min-h-0 flex-1 flex-col" ref={setPageHost} data-dt-page="">
           <BusyHost.Provider value={pageHost}>
-            <LiveControls.Provider value={liveCtl}>{pageEl}</LiveControls.Provider>
+            <BarsHidden.Provider value={barsHidden}>
+              <LiveControls.Provider value={liveCtl}>{pageEl}</LiveControls.Provider>
+            </BarsHidden.Provider>
           </BusyHost.Provider>
           <BusyOverlay show={!!busyText} label={busyText?.[0]} sub={busyText?.[1]} />
           <BackToTop host={pageHost} resetKey={vRoute} />

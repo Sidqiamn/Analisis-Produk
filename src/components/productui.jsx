@@ -6,7 +6,7 @@
    pemilih produk, kotak keterangan grafik, dan ubin angka.
    ========================================================================== */
 
-import React, { useState, useMemo, useRef, useCallback, useContext, useEffect, useLayoutEffect } from "react";
+import React, { createContext, useState, useMemo, useRef, useCallback, useContext, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 
 import { CRITERIA_DEFAULTS, WINDOW_OPTIONS, activeUnits, hasCol } from "../lib/config.js";
@@ -35,6 +35,34 @@ import { Tip } from "./tip.jsx";
 import { LiveControls } from "./busy.jsx";
 
 const dateText = (iso) => (iso ? dLabel.format(toJs(iso)) : "–");
+
+/* --------------------------------------------------- bilah yang dilipat */
+
+/** true = bilah atas (periode, penyaring, bilah Jendela yang menempel) sedang disembunyikan. Diisi App. */
+export const BarsHidden = createContext(false);
+
+/**
+ * Wadah yang bisa dilipat dengan animasi tinggi (grid 1fr ↔ 0fr). Selama
+ * beranimasi isinya dipotong; sesudah terbuka penuh potongannya dilepas,
+ * supaya menu tarik-turun di dalamnya (mis. penyaring) tidak ikut terpotong.
+ * Saat terlipat isinya tidak bisa dicapai Tab maupun pembaca layar.
+ */
+export function Collapse({ open, children, id, className }) {
+  const [settled, setSettled] = useState(open);
+  useEffect(() => {
+    if (!open) {
+      setSettled(false);
+      return undefined;
+    }
+    const t = setTimeout(() => setSettled(true), 340);
+    return () => clearTimeout(t);
+  }, [open]);
+  return (
+    <div id={id} className={cx("dt-collapse", className)} data-open={open ? "true" : "false"} data-clip={open && settled ? "false" : "true"}>
+      <div>{children}</div>
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ bagian */
 
@@ -392,11 +420,36 @@ export function WindowBar({
   onMatchLength,
   glossary,
   note,
+  pinned,
 }) {
   const [open, setOpen] = useState(false);
   const [gOpen, setGOpen] = useState(false);
+  // Bilah atas disembunyikan lewat tombol di bilah judul (lihat App.jsx).
+  const barsHidden = useContext(BarsHidden);
   const [gTab, setGTab] = useState("tahap");
   const btnRef = useRef(null);
+  const barRef = useRef(null);
+  // Tinggi bilah yang menempel dicatat di wadah gulir halaman (--dt-bar-h),
+  // dan dipakai sebagai scroll-padding: lompat ke bagian / scrollIntoView
+  // berhenti tepat di bawah bilah, tidak tertutup olehnya.
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const root = bar?.parentElement;
+    if (!bar || !root) return undefined;
+    const apply = () => {
+      const h = bar.offsetHeight;
+      root.style.setProperty("--dt-bar-h", `${h}px`);
+      root.style.scrollPaddingTop = `${h + 8}px`;
+    };
+    apply();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
+    ro?.observe(bar);
+    return () => {
+      ro?.disconnect();
+      root.style.removeProperty("--dt-bar-h");
+      root.style.scrollPaddingTop = "";
+    };
+  }, []);
   // Pilihan di kontrol mengikuti nilai LANGSUNG (lihat busy.jsx): selagi isi
   // halaman masih menghitung dengan pilihan lama, kontrolnya sudah berganti.
   const liveCtl = useContext(LiveControls);
@@ -409,105 +462,143 @@ export function WindowBar({
   const G = glossary || { open: gOpen, setOpen: setGOpen, tab: gTab, setTab: setGTab };
   const fixable = (w) => (w.key === "cover2" || w.key === "cover1") && win.fitMonths && String(win.fitMonths) !== String(winMode);
 
-  return (
-    <div className={cx("border-b bg-[var(--paper)]", LINE)}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 px-4 pb-2 pt-2.5">
-        {showUnit && units.length > 0 && (
-          <Field label="Tingkat">
-            <select className={SELECT} value={unitShown} onChange={(e) => setUnitKey(e.target.value)}>
-              {units.map((u) => (
-                <option key={u.key} value={u.key}>
-                  {u.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-
-        <Field label="Jendela">
-          <select className={SELECT} value={winShown} onChange={(e) => setWinMode(e.target.value)}>
-            {WINDOW_OPTIONS.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
+  // Tingkat & Jendela: di layar lebar ikut menempel di atas, di ponsel tetap di
+  // bagian yang ikut tergulir supaya bilah yang menempel cukup satu-dua baris.
+  const controls = (
+    <>
+      {showUnit && units.length > 0 && (
+        <Field label="Tingkat">
+          <select className={SELECT} value={unitShown} onChange={(e) => setUnitKey(e.target.value)}>
+            {units.map((u) => (
+              <option key={u.key} value={u.key}>
+                {u.label}
               </option>
             ))}
           </select>
         </Field>
-
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px]">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-700)] px-2.5 py-0.5 font-medium text-white">
-            P1 {dateText(win.p1.from)} – {dateText(win.p1.to)}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--blue-100)] px-2.5 py-0.5 font-medium text-[var(--blue-700)]">
-            P2 {dateText(win.p2.from)} – {dateText(win.p2.to)}
-          </span>
-          <span
-            className="text-[var(--ink-600)]"
-            title="Tanggal acuan mengikuti tanggal akhir Periode di bilah atas. Transaksi setelah tanggal ini tidak ikut dihitung."
-          >
-            dinilai per <b className="font-semibold text-[var(--ink-900)]">{dateText(win.asOf)}</b>
-          </span>
-        </div>
-
-      </div>
-
-      {note && (
-        <p className="flex max-w-[110ch] items-start gap-1.5 px-4 pb-2 text-[11.5px] leading-snug text-[var(--ink-600)]">
-          <IconInfo className="mt-px h-3.5 w-3.5 flex-none text-[var(--ink-400)]" />
-          <span>{note}</span>
-        </p>
       )}
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pb-2.5">
-        <DataTimeline win={win} />
-        <div className="ml-auto flex items-center gap-2">
-          {extra}
-          <InfoButton
-            onClick={() => {
-              G.setTab?.("tahap");
-              G.setOpen(true);
-            }}
-          />
-          {setCrit && (
-            <button
-              ref={btnRef}
-              type="button"
-              className={cx(BTN, "flex items-center gap-1.5", changed && "border-[var(--brand-400)] text-[var(--brand-700)]")}
-              onClick={() => setOpen((v) => !v)}
-              aria-expanded={open}
-              data-dt-crit=""
-            >
-              <IconSliders className="h-4 w-4" />
-              Kriteria{changed ? " (diubah)" : ""}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {win.warnings?.length > 0 && (
-        <div className="space-y-1.5 px-4 pb-2.5">
-          {win.warnings.map((w) => (
-            <Notice
-              key={w.key}
-              tone={w.level === "warn" ? "warn" : "info"}
-              className="py-2"
-              action={
-                fixable(w) ? (
-                  <button type="button" className={BTN} onClick={() => setWinMode(String(win.fitMonths))}>
-                    Pakai jendela {win.fitMonths} bulan
-                  </button>
-                ) : w.key === "length" && onMatchLength ? (
-                  <button type="button" className={BTN} onClick={onMatchLength}>
-                    Samakan panjang P2
-                  </button>
-                ) : null
-              }
-            >
-              {w.text}
-            </Notice>
+      <Field label="Jendela">
+        <select className={SELECT} value={winShown} onChange={(e) => setWinMode(e.target.value)}>
+          {WINDOW_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
           ))}
+        </select>
+      </Field>
+    </>
+  );
+  const periodChips = (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px]">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[var(--brand-700)] px-2.5 py-0.5 font-medium text-white">
+        P1 {dateText(win.p1.from)} – {dateText(win.p1.to)}
+      </span>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[var(--blue-100)] px-2.5 py-0.5 font-medium text-[var(--blue-700)]">
+        P2 {dateText(win.p2.from)} – {dateText(win.p2.to)}
+      </span>
+      <span
+        className={cx("hidden text-[var(--ink-600)]", pinned ? "sm:inline" : "2xl:inline")}
+        title="Tanggal acuan mengikuti tanggal akhir Periode di bilah atas. Transaksi setelah tanggal ini tidak ikut dihitung."
+      >
+        dinilai per <b className="font-semibold text-[var(--ink-900)]">{dateText(win.asOf)}</b>
+      </span>
+    </div>
+  );
+  // Isi bilah yang menempel. Bawaan: Tingkat/Jendela + P1/P2. Halaman yang
+  // punya periode lain yang lebih penting (Peringatan: periode pantau)
+  // mengirim `pinned = { controls, info }`; Tingkat/Jendela dan P1/P2 lalu
+  // pindah ke bagian yang ikut tergulir.
+  const stickyControls = pinned ? pinned.controls : controls;
+  const stickyInfo = pinned ? pinned.info : periodChips;
+
+  return (
+    <>
+      {/* Bagian yang MENEMPEL di atas saat halaman digulir. Harus anak langsung
+          wadah gulir halaman supaya position: sticky bekerja sepanjang halaman.
+          "dinilai per" hanya di layar sangat lebar — tanggal yang sama sudah ada
+          di kotak Dinilai per di bilah atas. Bisa disembunyikan bersama bilah
+          atas lewat tombol di bilah judul. */}
+      <div ref={barRef} data-dt-windowbar="" className="sticky top-0 z-20">
+        <Collapse open={!barsHidden}>
+          <div className={cx("border-b bg-[var(--paper)]", LINE)}>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
+              {stickyControls && <div className="hidden sm:contents">{stickyControls}</div>}
+
+              {stickyInfo}
+
+              <div className="ml-auto flex items-center gap-2">
+                {extra}
+                <InfoButton
+                  onClick={() => {
+                    G.setTab?.("tahap");
+                    G.setOpen(true);
+                  }}
+                />
+                {setCrit && (
+                  <button
+                    ref={btnRef}
+                    type="button"
+                    className={cx(BTN, "flex items-center gap-1.5", changed && "border-[var(--brand-400)] text-[var(--brand-700)]")}
+                    onClick={() => setOpen((v) => !v)}
+                    aria-expanded={open}
+                    data-dt-crit=""
+                  >
+                    <IconSliders className="h-4 w-4" />
+                    Kriteria{changed ? " (diubah)" : ""}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </Collapse>
+      </div>
+
+      {/* Bagian yang ikut tergulir: catatan, garis waktu data, peringatan jendela. */}
+      <div className={cx("border-b bg-[var(--paper)]", LINE)}>
+        {stickyControls && <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 px-4 pt-2.5 sm:hidden">{stickyControls}</div>}
+        {pinned && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 px-4 pt-2.5">
+            {controls}
+            {periodChips}
+          </div>
+        )}
+
+        {note && (
+          <p className="flex max-w-[110ch] items-start gap-1.5 px-4 pt-2.5 text-[11.5px] leading-snug text-[var(--ink-600)]">
+            <IconInfo className="mt-px h-3.5 w-3.5 flex-none text-[var(--ink-400)]" />
+            <span>{note}</span>
+          </p>
+        )}
+
+        <div className="px-4 pb-2.5 pt-2.5">
+          <DataTimeline win={win} />
         </div>
-      )}
+
+        {win.warnings?.length > 0 && (
+          <div className="space-y-1.5 px-4 pb-2.5">
+            {win.warnings.map((w) => (
+              <Notice
+                key={w.key}
+                tone={w.level === "warn" ? "warn" : "info"}
+                className="py-2"
+                action={
+                  fixable(w) ? (
+                    <button type="button" className={BTN} onClick={() => setWinMode(String(win.fitMonths))}>
+                      Pakai jendela {win.fitMonths} bulan
+                    </button>
+                  ) : w.key === "length" && onMatchLength ? (
+                    <button type="button" className={BTN} onClick={onMatchLength}>
+                      Samakan panjang P2
+                    </button>
+                  ) : null
+                }
+              >
+                {w.text}
+              </Notice>
+            ))}
+          </div>
+        )}
+      </div>
 
       {open && setCrit && <CriteriaPanel anchor={btnRef.current} crit={critShown} setCrit={setCrit} onClose={() => setOpen(false)} />}
 
@@ -524,7 +615,7 @@ export function WindowBar({
         focus={glossary?.focus}
         weights={portfolio?.weights}
       />
-    </div>
+    </>
   );
 }
 

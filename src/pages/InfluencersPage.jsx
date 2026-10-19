@@ -862,7 +862,7 @@ export default function InfluencersPage({
             </Section>
 
             {/* ------------------------------ rincian */}
-            <div className="scroll-mt-3 lg:sticky lg:top-3" ref={detailRef}>
+            <div className="lg:sticky lg:top-[calc(var(--dt-bar-h,0px)+12px)]" ref={detailRef}>
               {sel ? (
                 <FactorDetail
                   f={sel}

@@ -97,6 +97,14 @@ export const IconRefresh = (p) => (
   </Svg>
 );
 
+/** Kembalikan / reset: panah melingkar berlawanan arah jarum jam. */
+export const IconReset = (p) => (
+  <Svg {...p}>
+    <path d="M4.6 7.4A6 6 0 1 1 4 10" {...S} />
+    <path d="M4.2 3.6v3.9h3.9" {...S} />
+  </Svg>
+);
+
 /** Unggah. */
 export const IconUpload = (p) => (
   <Svg {...p}>

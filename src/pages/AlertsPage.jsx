@@ -62,6 +62,9 @@ const rp = (v) => fmt(v, "currency", true);
 const plusRp = (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${rp(Math.abs(v))}`;
 const dateText = (iso) => (iso ? dLabel.format(toJs(iso)) : "–");
 const rangeText = (r) => `${dateText(r.from)} – ${dateText(r.to)}`;
+const dayMonth = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short" });
+/** Rentang ringkas untuk lencana: "3 Mei – 31 Jul 2026" kalau tahunnya sama. */
+const chipRange = (r) => (r.from.slice(0, 4) === r.to.slice(0, 4) ? `${dayMonth.format(toJs(r.from))} – ${dateText(r.to)}` : rangeText(r));
 
 const SEV_ICON = { kritis: IconAlert, cek: IconSearch, peluang: IconTrendUp, info: IconInfo };
 const GROUP_ICON = {
@@ -208,9 +211,56 @@ export default function AlertsPage({
           <>
             <b className="font-medium text-[var(--ink-800)]">Tingkat</b> = satuan produk yang dinilai.{" "}
             <b className="font-medium text-[var(--ink-800)]">Jendela</b> = periode panjang untuk menentukan kelas ABC dan tahap (disarankan 12 bulan) —
-            bukan untuk mencari perubahan terbaru; itu diatur di <b className="font-medium text-[var(--ink-800)]">Periode pantau</b> di bawah.
+            bukan untuk mencari perubahan terbaru; itu diatur di <b className="font-medium text-[var(--ink-800)]">Periode pantau</b> di bilah
+            yang menempel di atas.
           </>
         }
+        pinned={{
+          // Di halaman ini yang paling perlu terlihat saat menggulir adalah periode
+          // pantau dan pembandingnya — bukan P1/P2 (yang hanya dipakai untuk kelas
+          // dan tahap). P1/P2 tetap ada di bagian yang ikut tergulir.
+          controls: (
+            <>
+              <Field label="Periode pantau">
+                <Segmented
+                  size="xs"
+                  label="Periode pantau"
+                  value={recalculating && settings.watchDays ? settings.watchDays : W.N}
+                  onChange={(v) => setCfg({ watchDays: v })}
+                  options={watchOptions}
+                />
+              </Field>
+              <Field label="Pembanding">
+                <Segmented
+                  size="xs"
+                  label="Pembanding"
+                  value={settings.compare === "prev" ? "prev" : "yoy"}
+                  onChange={(v) => setCfg({ compare: v })}
+                  options={[
+                    { key: "yoy", label: "Tahun lalu", hint: "Periode yang sama tahun lalu — aman dari pola musiman" },
+                    { key: "prev", label: "Periode sebelumnya", hint: "N hari tepat sebelum periode pantau" },
+                  ]}
+                />
+              </Field>
+            </>
+          ),
+          info: (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px]">
+              <span
+                className="inline-flex items-center whitespace-nowrap rounded-full bg-[var(--p1)] px-2.5 py-0.5 font-medium text-white"
+                title={`Periode pantau: ${rangeText(W.R)} (${nfFull.format(W.N)} hari sampai tanggal acuan)`}
+              >
+                Pantau {chipRange(W.R)}
+              </span>
+              <span
+                className="inline-flex items-center whitespace-nowrap rounded-full bg-[var(--blue-100)] px-2.5 py-0.5 font-medium text-[var(--blue-700)]"
+                title={`Pembanding (${W.cmpLabel}): ${rangeText(W.B)}`}
+              >
+                vs {chipRange(W.B)}
+              </span>
+            </div>
+          ),
+        }}
       />
 
       <div className="space-y-4 p-4">
@@ -256,27 +306,17 @@ export default function AlertsPage({
             </>
           }
         >
-          <div className={cx("flex flex-wrap items-center gap-x-4 gap-y-2.5 border-b px-4 py-3", LINE)}>
-            <Field label="Periode pantau">
-              <Segmented
-                label="Periode pantau"
-                value={recalculating && settings.watchDays ? settings.watchDays : W.N}
-                onChange={(v) => setCfg({ watchDays: v })}
-                options={watchOptions}
-              />
-            </Field>
-            <Field label="Pembanding">
-              <Segmented
-                label="Pembanding"
-                value={settings.compare === "prev" ? "prev" : "yoy"}
-                onChange={(v) => setCfg({ compare: v })}
-                options={[
-                  { key: "yoy", label: "Tahun lalu", hint: "Periode yang sama tahun lalu — aman dari pola musiman" },
-                  { key: "prev", label: "Periode sebelumnya", hint: "N hari tepat sebelum periode pantau" },
-                ]}
-              />
-            </Field>
-            <label className="relative ml-auto min-w-[220px] flex-1 sm:max-w-[320px]">
+          <div className={cx("flex flex-wrap items-start gap-x-4 gap-y-2.5 border-b px-4 py-3", LINE)}>
+            <p className="flex min-w-0 flex-[1_1_28rem] items-start gap-1.5 text-[11.5px] leading-snug text-[var(--ink-600)]">
+              <IconInfo className="mt-px h-3.5 w-3.5 flex-none text-[var(--ink-400)]" />
+              <span>
+                <b className="font-medium text-[var(--ink-800)]">Periode pantau</b> = rentang terbaru yang diperiksa (30 hari cek cepat, 90 rutin, 180
+                tren). <b className="font-medium text-[var(--ink-800)]">Pembanding</b> = patokan untuk menilai naik/turun; <i>Tahun lalu</i> aman dari
+                pola musiman. Keduanya diatur di bilah atas, yang tetap terlihat saat halaman digulir. Sekarang: {rangeText(W.R)} dibanding{" "}
+                {rangeText(W.B)}.
+              </span>
+            </p>
+            <label className="relative min-w-[220px] flex-1 sm:max-w-[320px]">
               <span className="sr-only">Cari peringatan</span>
               <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--ink-400)]" />
               <input
@@ -290,14 +330,6 @@ export default function AlertsPage({
                 )}
               />
             </label>
-            <p className="flex basis-full items-start gap-1.5 text-[11.5px] leading-snug text-[var(--ink-600)]">
-              <IconInfo className="mt-px h-3.5 w-3.5 flex-none text-[var(--ink-400)]" />
-              <span>
-                <b className="font-medium text-[var(--ink-800)]">Periode pantau</b> = rentang terbaru yang diperiksa (30 hari cek cepat, 90 rutin, 180
-                tren). <b className="font-medium text-[var(--ink-800)]">Pembanding</b> = patokan untuk menilai naik/turun; <i>Tahun lalu</i> aman dari
-                pola musiman. Sekarang: {rangeText(W.R)} dibanding {rangeText(W.B)}.
-              </span>
-            </p>
           </div>
 
           {W.notes.length > 0 && (
